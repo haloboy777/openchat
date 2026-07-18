@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../models/chat_message.dart';
 import '../models/chat_session.dart';
 import '../models/open_router_model.dart';
+import '../models/system_prompt_profile.dart';
 import '../models/usage_stats.dart';
 import '../services/api_service.dart';
 import '../services/database_service.dart';
@@ -28,7 +29,8 @@ class ChatProvider with ChangeNotifier {
   
   String? _selectedModelId;
   String? _apiKey;
-  String? _systemPrompt;
+  List<SystemPromptProfile> _profiles = [];
+  String? _activeProfileId;
   ThemeMode _themeMode = ThemeMode.system;
   bool _isLoading = false;
 
@@ -59,7 +61,16 @@ class ChatProvider with ChangeNotifier {
   DateTime? get lastModelsFetch => _lastModelsFetch;
   String? get selectedModelId => _selectedModelId;
   String? get apiKey => _apiKey;
-  String? get systemPrompt => _systemPrompt;
+  List<SystemPromptProfile> get profiles => _profiles;
+  String? get activeProfileId => _activeProfileId;
+  SystemPromptProfile? get activeProfile {
+    for (final profile in _profiles) {
+      if (profile.id == _activeProfileId) return profile;
+    }
+    return null;
+  }
+
+  String? get systemPrompt => activeProfile?.prompt;
   ThemeMode get themeMode => _themeMode;
   bool get isLoading => _isLoading;
   bool get isStreaming => _streamingSessionIds.contains(_currentSession?.id);
@@ -84,7 +95,7 @@ class ChatProvider with ChangeNotifier {
     try {
       _apiKey = await _storageService.getApiKey();
       _selectedModelId = await _storageService.getSelectedModel();
-      _systemPrompt = await _storageService.getSystemPrompt();
+      await _loadProfiles();
       
       final storedTheme = await _storageService.getThemeMode();
       _themeMode = _parseThemeMode(storedTheme);
@@ -112,6 +123,14 @@ class ChatProvider with ChangeNotifier {
       }
 
       _validateSelectedModel();
+
+      // Backfill greetings for profiles created before greetings existed
+      // or whose generation previously failed.
+      for (final profile in _profiles) {
+        if (profile.greeting == null) {
+          unawaited(_generateGreeting(profile.id));
+        }
+      }
     } catch (e) {
       _error = 'Initialization error: $e';
     }
@@ -195,9 +214,98 @@ class ChatProvider with ChangeNotifier {
     return modelId;
   }
 
-  Future<void> setSystemPrompt(String prompt) async {
-    await _storageService.saveSystemPrompt(prompt);
-    _systemPrompt = prompt;
+  Future<void> _loadProfiles() async {
+    final profilesJson = await _storageService.getProfiles();
+    if (profilesJson != null) {
+      final List decoded = json.decode(profilesJson);
+      _profiles = decoded.map((p) => SystemPromptProfile.fromJson(p)).toList();
+      _activeProfileId = await _storageService.getActiveProfileId();
+    } else {
+      // Migrate the old single system prompt into a first profile.
+      final legacyPrompt = await _storageService.getSystemPrompt();
+      if (legacyPrompt != null && legacyPrompt.trim().isNotEmpty) {
+        final profile = SystemPromptProfile(
+          id: const Uuid().v4(),
+          name: 'Default',
+          prompt: legacyPrompt,
+        );
+        _profiles = [profile];
+        _activeProfileId = profile.id;
+        await _persistProfiles();
+      }
+    }
+  }
+
+  Future<void> _persistProfiles() async {
+    await _storageService
+        .saveProfiles(json.encode(_profiles.map((p) => p.toJson()).toList()));
+    await _storageService.saveActiveProfileId(_activeProfileId);
+  }
+
+  Future<void> addProfile(String name, String prompt) async {
+    final profile = SystemPromptProfile(
+      id: const Uuid().v4(),
+      name: name,
+      prompt: prompt,
+    );
+    _profiles.add(profile);
+    await _persistProfiles();
+    notifyListeners();
+    unawaited(_generateGreeting(profile.id));
+  }
+
+  Future<void> updateProfile(SystemPromptProfile profile) async {
+    final index = _profiles.indexWhere((p) => p.id == profile.id);
+    if (index == -1) return;
+    final promptChanged = _profiles[index].prompt != profile.prompt;
+    // A changed prompt invalidates the cached greeting.
+    _profiles[index] =
+        promptChanged ? profile.copyWith(clearGreeting: true) : profile;
+    await _persistProfiles();
+    notifyListeners();
+    if (promptChanged) unawaited(_generateGreeting(profile.id));
+  }
+
+  /// Generates and caches a short in-persona greeting for a profile using a
+  /// free model, so it costs nothing. Silently skipped without an API key or
+  /// on failure — the UI falls back gracefully and the next edit retries.
+  Future<void> _generateGreeting(String profileId) async {
+    if (_apiKey == null) return;
+    final index = _profiles.indexWhere((p) => p.id == profileId);
+    if (index == -1) return;
+    final promptAtStart = _profiles[index].prompt;
+
+    try {
+      final greeting = await _apiService.chatCompletion(
+        apiKey: _apiKey!,
+        model: 'openrouter/free',
+        systemPrompt: promptAtStart,
+        userMessage: 'A new person just opened the chat with you. Greet them '
+            'in your persona. One short, warm sentence of at most 12 words. '
+            'Reply with the greeting only — no quotes, no explanations.',
+      );
+      // The profile may have been edited or deleted while we waited.
+      final current = _profiles.indexWhere((p) => p.id == profileId);
+      if (current == -1 || _profiles[current].prompt != promptAtStart) return;
+      _profiles[current] = _profiles[current].copyWith(greeting: greeting);
+      await _persistProfiles();
+      notifyListeners();
+    } catch (_) {
+      // Greeting is cosmetic; never surface an error for it.
+    }
+  }
+
+  Future<void> deleteProfile(String id) async {
+    _profiles.removeWhere((p) => p.id == id);
+    if (_activeProfileId == id) _activeProfileId = null;
+    await _persistProfiles();
+    notifyListeners();
+  }
+
+  /// Pass null to deactivate all profiles (no system prompt).
+  Future<void> setActiveProfile(String? id) async {
+    _activeProfileId = id;
+    await _storageService.saveActiveProfileId(id);
     notifyListeners();
   }
 
@@ -376,12 +484,13 @@ class ChatProvider with ChangeNotifier {
 
     try {
       final List<ChatMessage> apiMessages = [];
-      if (_systemPrompt != null && _systemPrompt!.trim().isNotEmpty) {
+      final prompt = systemPrompt;
+      if (prompt != null && prompt.trim().isNotEmpty) {
         apiMessages.add(ChatMessage(
           id: 'system',
           sessionId: sessionId,
           role: 'system',
-          content: _systemPrompt!,
+          content: prompt,
           timestamp: DateTime.now(),
         ));
       }

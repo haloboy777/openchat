@@ -100,6 +100,41 @@ class ApiService {
     }
   }
 
+  /// Single non-streaming completion. Used for small utility generations
+  /// (e.g. profile greetings), not for chat.
+  Future<String> chatCompletion({
+    required String apiKey,
+    required String model,
+    String? systemPrompt,
+    required String userMessage,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/chat/completions'),
+      headers: {
+        'Authorization': 'Bearer $apiKey',
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://github.com/haloboy777/openchat',
+      },
+      body: json.encode({
+        'model': model,
+        'messages': [
+          if (systemPrompt != null) {'role': 'system', 'content': systemPrompt},
+          {'role': 'user', 'content': userMessage},
+        ],
+      }),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Completion failed: ${response.body}');
+    }
+    final content =
+        json.decode(response.body)['choices'][0]['message']['content'];
+    if (content is! String || content.trim().isEmpty) {
+      throw Exception('Empty completion');
+    }
+    return content.trim();
+  }
+
   Stream<String> chatCompletionStream({
     required String apiKey,
     required String model,

@@ -85,16 +85,6 @@ class ChatDrawer extends StatelessWidget {
                 },
               ),
             ),
-            const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.settings_outlined),
-              title: const Text('Settings'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.pushNamed(context, '/settings');
-              },
-            ),
-            const SizedBox(height: 8),
           ],
         ),
       ),

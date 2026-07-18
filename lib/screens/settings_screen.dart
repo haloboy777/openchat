@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../providers/chat_provider.dart';
+import '../services/export_service.dart';
+import 'profiles_screen.dart';
 import 'provider_selection_screen.dart';
 import 'usage_screen.dart';
 import '../utils/ui_utils.dart';
@@ -15,22 +18,45 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late TextEditingController _apiKeyController;
-  late TextEditingController _systemPromptController;
-  bool _isSaving = false;
+  late ChatProvider _provider;
+  Timer? _saveDebounce;
 
   @override
   void initState() {
     super.initState();
-    final provider = context.read<ChatProvider>();
-    _apiKeyController = TextEditingController(text: provider.apiKey);
-    _systemPromptController = TextEditingController(text: provider.systemPrompt);
+    _provider = context.read<ChatProvider>();
+    _apiKeyController = TextEditingController(text: _provider.apiKey);
   }
 
   @override
   void dispose() {
+    // Flush a pending save so backing out right after a paste still saves.
+    if (_saveDebounce?.isActive ?? false) {
+      _saveDebounce!.cancel();
+      _saveApiKey(showFeedback: false);
+    }
     _apiKeyController.dispose();
-    _systemPromptController.dispose();
     super.dispose();
+  }
+
+  void _onApiKeyChanged(String _) {
+    _saveDebounce?.cancel();
+    _saveDebounce = Timer(const Duration(milliseconds: 800), _saveApiKey);
+  }
+
+  Future<void> _saveApiKey({bool showFeedback = true}) async {
+    final key = _apiKeyController.text.trim();
+    if (key.isEmpty || key == _provider.apiKey) return;
+    try {
+      await _provider.setApiKey(key);
+      if (showFeedback && mounted) {
+        showSuccessSnackbar(context, 'API key saved');
+      }
+    } catch (e) {
+      if (showFeedback && mounted) {
+        showErrorSnackbar(context, 'API key save failed: $e');
+      }
+    }
   }
 
   @override
@@ -61,8 +87,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   hintText: 'sk-or-v1-...',
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.vpn_key),
+                  helperText: 'Saved automatically',
                 ),
                 obscureText: true,
+                onChanged: _onApiKeyChanged,
+                onSubmitted: (_) {
+                  _saveDebounce?.cancel();
+                  _saveApiKey();
+                },
               ),
               const SizedBox(height: 16),
               Row(
@@ -128,15 +160,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 24),
               _buildSectionTitle('AI Behavior'),
               const SizedBox(height: 8),
-              TextField(
-                controller: _systemPromptController,
-                maxLines: 5,
-                decoration: const InputDecoration(
-                  labelText: 'System Prompt',
-                  hintText: 'e.g., You are a helpful assistant who speaks like a pirate.',
-                  border: OutlineInputBorder(),
-                  alignLabelWithHint: true,
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('System Prompt Profiles'),
+                subtitle: Text(
+                  provider.activeProfile != null
+                      ? 'Active: ${provider.activeProfile!.name}'
+                      : 'No active profile',
+                  style: const TextStyle(fontSize: 12),
                 ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const ProfilesScreen()),
+                  );
+                },
+              ),
+              const SizedBox(height: 24),
+              _buildSectionTitle('Data'),
+              const SizedBox(height: 8),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Export Chats'),
+                subtitle: const Text(
+                  'Back up as SQLite database or JSON',
+                  style: TextStyle(fontSize: 12),
+                ),
+                trailing: const Icon(Icons.ios_share),
+                onTap: () => _showExportDialog(context),
               ),
               const SizedBox(height: 24),
               _buildSectionTitle('Appearance'),
@@ -152,27 +204,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   provider.setThemeMode(newSelection.first);
                 },
               ),
-              const SizedBox(height: 32),
-              FilledButton(
-                onPressed: _isSaving ? null : () async {
-                  setState(() => _isSaving = true);
-                  try {
-                    await provider.setApiKey(_apiKeyController.text);
-                    await provider.setSystemPrompt(_systemPromptController.text);
-                    if (context.mounted) showSuccessSnackbar(context, 'Settings saved successfully');
-                  } catch (e) {
-                    if (context.mounted) showErrorSnackbar(context, 'Save failed: $e');
-                  } finally {
-                    if (mounted) setState(() => _isSaving = false);
-                  }
-                },
-                child: _isSaving 
-                  ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : const Text('Save All Settings'),
-              ),
             ],
           );
         },
+      ),
+    );
+  }
+
+  void _showExportDialog(BuildContext context) {
+    final exportService = ExportService();
+
+    Future<void> run(Future<void> Function() export) async {
+      try {
+        await export();
+      } catch (e) {
+        if (context.mounted) showErrorSnackbar(context, 'Export failed: $e');
+      }
+    }
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('Export Chats'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        children: [
+          ListTile(
+            leading: const Icon(Icons.storage_outlined),
+            title: const Text('SQLite database'),
+            subtitle: const Text('Complete backup file (.db)',
+                style: TextStyle(fontSize: 12)),
+            onTap: () {
+              Navigator.pop(dialogContext);
+              run(exportService.exportDatabase);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.data_object),
+            title: const Text('JSON'),
+            subtitle: const Text('Readable export of all chats (.json)',
+                style: TextStyle(fontSize: 12)),
+            onTap: () {
+              Navigator.pop(dialogContext);
+              run(exportService.exportJson);
+            },
+          ),
+        ],
       ),
     );
   }

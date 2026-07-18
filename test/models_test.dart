@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:open_chat/models/chat_message.dart';
 import 'package:open_chat/models/chat_session.dart';
 import 'package:open_chat/models/open_router_model.dart';
+import 'package:open_chat/models/system_prompt_profile.dart';
 
 void main() {
   group('ChatMessage', () {
@@ -49,6 +50,35 @@ void main() {
       expect(renamed.title, 'Renamed');
       expect(renamed.id, session.id);
       expect(renamed.lastUpdated, session.lastUpdated);
+    });
+  });
+
+  group('SystemPromptProfile', () {
+    final profile = SystemPromptProfile(
+      id: 'p1',
+      name: 'Pirate',
+      prompt: 'You speak like a pirate.',
+    );
+
+    test('round-trips through toJson/fromJson', () {
+      final restored = SystemPromptProfile.fromJson(profile.toJson());
+      expect(restored.id, profile.id);
+      expect(restored.name, profile.name);
+      expect(restored.prompt, profile.prompt);
+      expect(restored.greeting, isNull);
+    });
+
+    test('greeting round-trips and copyWith can set or clear it', () {
+      final greeted = profile.copyWith(greeting: 'Ahoy, matey!');
+      expect(SystemPromptProfile.fromJson(greeted.toJson()).greeting, 'Ahoy, matey!');
+      expect(greeted.copyWith(clearGreeting: true).greeting, isNull);
+    });
+
+    test('copyWith replaces given fields and keeps id and greeting', () {
+      final edited = profile.copyWith(prompt: 'You are terse.');
+      expect(edited.id, profile.id);
+      expect(edited.name, profile.name);
+      expect(edited.prompt, 'You are terse.');
     });
   });
 

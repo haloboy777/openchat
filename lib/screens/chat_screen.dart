@@ -57,10 +57,12 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final hasApiKey = context.watch<ChatProvider>().apiKey != null;
+
     return Scaffold(
       appBar: AppBar(
         centerTitle: true,
-        title: const ModelSelector(compact: true),
+        title: hasApiKey ? const ModelSelector(compact: true) : null,
         backgroundColor: Theme.of(context).primaryColor,
         foregroundColor: Colors.white,
         actions: [
@@ -125,17 +127,49 @@ class _ChatScreenState extends State<ChatScreen> {
                 }
 
                 if (provider.messages.isEmpty) {
+                  final profile = provider.activeProfile;
                   return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.chat_bubble_outline, size: 64, color: Colors.grey[300]),
-                        const SizedBox(height: 16),
-                        Text(
-                          'How can I help you today?',
-                          style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-                        ),
-                      ],
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 40),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: profile != null
+                            ? [
+                                Icon(Icons.psychology_outlined,
+                                    size: 64, color: Colors.grey[300]),
+                                const SizedBox(height: 16),
+                                Text(
+                                  profile.name,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  profile.greeting ??
+                                      'Hello! How can I help you today?',
+                                  maxLines: 3,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                      fontSize: 14, color: Colors.grey[500]),
+                                ),
+                              ]
+                            : [
+                                Icon(Icons.chat_bubble_outline,
+                                    size: 64, color: Colors.grey[300]),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'Hello! How can I help you today?',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                      fontSize: 18, color: Colors.grey[600]),
+                                ),
+                              ],
+                      ),
                     ),
                   );
                 }

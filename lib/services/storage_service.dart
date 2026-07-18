@@ -12,6 +12,8 @@ class StorageService {
   static const _selectedProviders = 'selected_providers';
   static const _balance = 'balance';
   static const _balanceUpdatedAt = 'balance_updated_at';
+  static const _promptProfiles = 'prompt_profiles';
+  static const _activeProfileId = 'active_profile_id';
   
   final _secureStorage = const FlutterSecureStorage();
 
@@ -23,11 +25,7 @@ class StorageService {
     return await _secureStorage.read(key: _apiKey);
   }
 
-  Future<void> saveSystemPrompt(String prompt) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_systemPrompt, prompt);
-  }
-
+  /// Legacy single system prompt — only read for migration into profiles.
   Future<String?> getSystemPrompt() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_systemPrompt);
@@ -86,6 +84,31 @@ class StorageService {
     final jsonStr = prefs.getString(_selectedProviders);
     if (jsonStr == null) return null;
     return List<String>.from(json.decode(jsonStr));
+  }
+
+  // System Prompt Profiles
+  Future<void> saveProfiles(String profilesJson) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_promptProfiles, profilesJson);
+  }
+
+  Future<String?> getProfiles() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_promptProfiles);
+  }
+
+  Future<void> saveActiveProfileId(String? id) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (id == null) {
+      await prefs.remove(_activeProfileId);
+    } else {
+      await prefs.setString(_activeProfileId, id);
+    }
+  }
+
+  Future<String?> getActiveProfileId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_activeProfileId);
   }
 
   // Balance

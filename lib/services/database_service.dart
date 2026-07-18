@@ -113,6 +113,27 @@ class DatabaseService {
     );
   }
 
+  // Export helpers
+  Future<String> databaseFilePath() async {
+    return join(await getDatabasesPath(), 'chat_app.db');
+  }
+
+  /// Flushes any WAL journal into the main .db file so a file copy is complete.
+  Future<void> flushToDisk() async {
+    final db = await database;
+    try {
+      await db.rawQuery('PRAGMA wal_checkpoint(FULL)');
+    } catch (_) {
+      // Not in WAL mode — the file is already complete.
+    }
+  }
+
+  Future<List<ChatMessage>> getAllMessages() async {
+    final db = await database;
+    final maps = await db.query('messages', orderBy: 'sessionId, timestamp ASC');
+    return maps.map(ChatMessage.fromMap).toList();
+  }
+
   // Usage Operations
   Future<void> insertUsage(UsageRecord record) async {
     final db = await database;
