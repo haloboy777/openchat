@@ -6,12 +6,12 @@
 
 **One app. Every model.**
 
-A fast, lightweight Android chat client for [OpenRouter](https://openrouter.ai) —
+A fast, lightweight chat client for [OpenRouter](https://openrouter.ai) on Android and iOS —
 talk to Claude, GPT, Gemini, Llama, and 400+ other models from a single, clean interface.
 
 ![Flutter](https://img.shields.io/badge/Flutter-3.x-02569B?logo=flutter&logoColor=white)
 ![Dart](https://img.shields.io/badge/Dart-3.x-0175C2?logo=dart&logoColor=white)
-![Platform](https://img.shields.io/badge/Platform-Android-3DDC84?logo=android&logoColor=white)
+![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20iOS-3DDC84?logo=android&logoColor=white)
 ![Storage](https://img.shields.io/badge/Storage-100%25%20on--device-4C8DFF)
 
 </div>
@@ -66,6 +66,9 @@ storeFile=upload-keystore.jks
 
 Then `flutter build apk --release`. Without `key.properties` the build falls back to
 debug signing so it still runs.
+
+For iOS, open `ios/Runner.xcworkspace` in Xcode, set your team under
+Signing & Capabilities, and run on your device.
 
 ## Architecture
 
